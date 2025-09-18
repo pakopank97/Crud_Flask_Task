@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Todas las tareas</h1>
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Título</th>
+      <th>Descripción</th>
+      <th>Usuario</th>
+      <th>Estatus</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for task in tasks %}
+    <tr>
+      <td>{{ task.id }}</td>
+      <td>{{ task.title }}</td>
+      <td>{{ task.description }}</td>
+      <td>{{ task.user.username if task.user else '-' }}</td>
+      <td>{{ task.status }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

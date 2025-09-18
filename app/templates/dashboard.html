@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Tus Tareas</h2>
+    <table class="table table-dark table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Título</th>
+                <th>Descripción</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in tasks %}
+            <tr>
+                <td>{{ task.id }}</td>
+                <td>{{ task.title }}</td>
+                <td>{{ task.description or "-" }}</td>
+                <td>{{ task.status }}</td>
+                <td>
+                    <form action="{{ url_for('tasks.update_status', task_id=task.id) }}" method="post" class="d-flex">
+                        <select name="status" class="form-select form-select-sm me-2">
+                            {% for status in allowed_statuses %}
+                                <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>
+                                    {{ status }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-success btn-sm">Actualizar</button>
+                    </form>
+
+                    {% if current_user.role == "admin" %}
+                    <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-warning btn-sm me-2">Editar</a>
+                    <form action="{{ url_for('tasks.delete_task', task_id=task.id) }}" method="post" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('¿Eliminar esta tarea?')">Eliminar</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <hr>
+
+    {% if can_create %}
+    <h3>Agregar Tarea</h3>
+    <form action="{{ url_for('tasks.create_task') }}" method="post">
+        <div class="mb-3">
+            <label for="title" class="form-label">Título</label>
+            <input type="text" class="form-control" id="title" name="title" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">Descripción</label>
+            <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+        </div>
+
+        <div class="mb-3">
+            <label for="user_id" class="form-label">Asignar a Usuario</label>
+            <select class="form-select" id="user_id" name="user_id" required>
+                <option value="">-- Selecciona un usuario --</option>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Crear</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

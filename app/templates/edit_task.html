@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Editar Tarea</h2>
+    <form action="{{ url_for('tasks.edit_task', task_id=task.id) }}" method="post">
+        <div class="mb-3">
+            <label for="title" class="form-label">Título</label>
+            <input type="text" class="form-control" id="title" name="title" value="{{ task.title }}" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">Descripción</label>
+            <textarea class="form-control" id="description" name="description" rows="3">{{ task.description }}</textarea>
+        </div>
+
+        <div class="mb-3">
+            <label for="user_id" class="form-label">Asignar a Usuario</label>
+            <select class="form-select" id="user_id" name="user_id" required>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if task.user_id == user.id %}selected{% endif %}>
+                    {{ user.username }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Guardar cambios</button>
+        <a href="{{ url_for('tasks.dashboard') }}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %}
