@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  business-central:
+    image: quay.io/kiegroup/business-central-workbench:7.74.0.Final
+    container_name: business-central
+    ports:
+      - "8081:8080"
+    environment:
+      - JAVA_OPTS=-Xms512m -Xmx1024m
+      - KIE_SERVER_CONTROLLER=http://kieserver:8080/kie-server/services/rest/server
+      - KIE_SERVER_CONTROLLER_USER=root
+      - KIE_SERVER_CONTROLLER_PWD=root
+      - KIE_SERVER_CONTROLLER_TOKEN=
+      - KIE_MAVEN_REPO=http://kieserver:8080/maven2
+      - KIE_MAVEN_REPO_USER=root
+      - KIE_MAVEN_REPO_PASSWORD=root
+    networks:
+      - jbpm-net
+
+  kieserver:
+    image: quay.io/kiegroup/kie-server:7.74.0.Final
+    container_name: kieserver
+    ports:
+      - "8180:8080"
+    environment:
+      - JAVA_OPTS=-Xms512m -Xmx1024m
+      - KIE_SERVER_ID=kieserver
+      - KIE_SERVER_LOCATION=http://kieserver:8080/kie-server/services/rest/server
+      - KIE_SERVER_USER=admin
+      - KIE_SERVER_PWD=admin
+      - KIE_SERVER_CONTROLLER=http://business-central:8080/business-central/rest/controller
+      - KIE_SERVER_CONTROLLER_USER=admin
+      - KIE_SERVER_CONTROLLER_PWD=admin
+      - business-central
+    networks:
+      - jbpm-net
+
+networks:
+  jbpm-net:
+    driver: bridge
