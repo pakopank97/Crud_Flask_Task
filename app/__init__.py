@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 
@@ -22,10 +22,16 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
+    # Blueprints
     from .routes_auth import auth_bp
     from .routes_tasks import tasks_bp
     app.register_blueprint(auth_bp, url_prefix="/auth")
-    app.register_blueprint(tasks_bp, url_prefix="/")
+    app.register_blueprint(tasks_bp, url_prefix="/tasks")
+
+    # ✅ Redirección automática de "/" → "/tasks"
+    @app.route("/")
+    def home():
+        return redirect(url_for("tasks.dashboard"))
 
     with app.app_context():
         db.create_all()

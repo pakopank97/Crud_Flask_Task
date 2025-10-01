@@ -21,10 +21,7 @@ def notify_jbpm(task_id, status):
     Notifica a jBPM cuando una tarea se crea o cambia de estado.
     """
     url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/{PROCESS_ID}/instances"
-    payload = {
-        "taskId": task_id,
-        "status": status
-    }
+    payload = {"taskId": task_id, "status": status}
     try:
         response = requests.post(url, auth=(KIE_USER, KIE_PASSWORD), json=payload)
         response.raise_for_status()
@@ -44,9 +41,28 @@ USER_ALLOWED_STATUSES = ["Por hacer", "Revisar", "Finalizar"]
 @tasks_bp.route("/")
 @login_required
 def dashboard():
-    return render_template("dashboard.html")
+    # Si es admin, ve todas las tareas
+    if current_user.role == "admin":
+        tasks = Task.query.order_by(Task.id.desc()).all()
+        users = User.query.order_by(User.username.asc()).all()
+        can_create = True
+        allowed_statuses = ADMIN_ALLOWED_STATUSES
+    else:
+        # Usuarios normales solo ven sus tareas
+        tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.id.desc()).all()
+        users = []
+        can_create = False
+        allowed_statuses = USER_ALLOWED_STATUSES
 
-@tasks_bp.route("/tasks/create", methods=["POST"])
+    return render_template(
+        "dashboard.html",
+        tasks=tasks,
+        users=users,
+        can_create=can_create,
+        allowed_statuses=allowed_statuses,
+    )
+
+@tasks_bp.route("/create", methods=["POST"])
 @login_required
 def create_task():
     if current_user.role != "admin":
@@ -64,28 +80,24 @@ def create_task():
     task = Task(
         title=title,
         description=description,
-        status="Por hacer",  # siempre empieza en "Por hacer"
+        status="Por hacer",
         user_id=user_id,
     )
     db.session.add(task)
     db.session.commit()
 
-    # Notificar a jBPM
     notify_jbpm(task.id, task.status)
 
     flash("Tarea creada correctamente.", "success")
     return redirect(url_for("tasks.dashboard"))
 
-@tasks_bp.route("/tasks/<int:task_id>/status", methods=["POST"])
+@tasks_bp.route("/<int:task_id>/status", methods=["POST"])
 @login_required
 def update_status(task_id):
     task = Task.query.get_or_404(task_id)
     new_status = request.form.get("status")
 
-    if current_user.role == "admin":
-        allowed_statuses = ADMIN_ALLOWED_STATUSES
-    else:
-        allowed_statuses = USER_ALLOWED_STATUSES
+    allowed_statuses = ADMIN_ALLOWED_STATUSES if current_user.role == "admin" else USER_ALLOWED_STATUSES
 
     if new_status not in allowed_statuses or new_status not in VALID_STATUSES:
         flash("Estado no permitido.", "danger")
@@ -94,13 +106,12 @@ def update_status(task_id):
     task.status = new_status
     db.session.commit()
 
-    # Notificar a jBPM
     notify_jbpm(task.id, task.status)
 
     flash("Estado de tarea actualizado.", "success")
     return redirect(url_for("tasks.dashboard"))
 
-@tasks_bp.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
+@tasks_bp.route("/<int:task_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_task(task_id):
     task = Task.query.get_or_404(task_id)
@@ -119,7 +130,7 @@ def edit_task(task_id):
     users = User.query.order_by(User.username.asc()).all()
     return render_template("edit_task.html", task=task, users=users)
 
-@tasks_bp.route("/tasks/<int:task_id>/delete", methods=["POST"])
+@tasks_bp.route("/<int:task_id>/delete", methods=["POST"])
 @login_required
 def delete_task(task_id):
     task = Task.query.get_or_404(task_id)
@@ -131,35 +142,3 @@ def delete_task(task_id):
     db.session.commit()
     flash("Tarea eliminada correctamente.", "success")
     return redirect(url_for("tasks.dashboard"))
-
-# ================================
-# Endpoints JSON
-# ================================
-@tasks_bp.route("/tasks/all", methods=["GET"])
-@login_required
-def all_tasks():
-    tasks = Task.query.order_by(Task.id.desc()).all()
-    tasks_data = [
-        {
-            "id": t.id,
-            "title": t.title,
-            "description": t.description,
-            "status": t.status,
-            "user_id": t.user_id
-        }
-        for t in tasks
-    ]
-    return jsonify(tasks_data)
-
-@tasks_bp.route("/tasks/<int:task_id>", methods=["GET"])
-@login_required
-def get_task(task_id):
-    task = Task.query.get_or_404(task_id)
-    task_data = {
-        "id": task.id,
-        "title": task.title,
-        "description": task.description,
-        "status": task.status,
-        "user_id": task.user_id
-    }
-    return jsonify(task_data)

@@ -1,74 +1,76 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard - Tareas</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-  <div class="container mt-4">
-    <h1 class="mb-4">Gestión de Tareas</h1>
-    <button id="btnCargarTareas" class="btn btn-primary mb-3">Actualizar Tareas</button>
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Gestión de Tareas</h2>
 
-    <table class="table table-bordered table-striped" id="tablaTareas">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Título</th>
-          <th>Descripción</th>
-          <th>Estado</th>
-          <th>Usuario</th>
-        </tr>
-      </thead>
-      <tbody>
-        <!-- Se llenará con JS -->
-      </tbody>
-    </table>
-  </div>
+  <!-- Botón actualizar -->
+  <a href="{{ url_for('tasks.dashboard') }}" class="btn btn-primary mb-3">Actualizar Tareas</a>
 
-  <script>
-    const serverUrl = "http://127.0.0.1:5000";
+  <!-- Tabla de tareas -->
+  <table class="table table-dark table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Título</th>
+        <th>Descripción</th>
+        <th>Estado</th>
+        <th>Usuario</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+      <tr>
+        <td>{{ task.id }}</td>
+        <td>{{ task.title }}</td>
+        <td>{{ task.description }}</td>
+        <td>
+          <!-- Formulario para cambiar estado -->
+          <form action="{{ url_for('tasks.update_status', task_id=task.id) }}" method="POST" class="d-flex">
+            <select name="status" class="form-select form-select-sm me-2">
+              {% for status in allowed_statuses %}
+                <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-success">✔</button>
+          </form>
+        </td>
+        <td>{{ task.user_id }}</td>
+        <td>
+          {% if current_user.role == 'admin' %}
+          <form action="{{ url_for('tasks.delete_task', task_id=task.id) }}" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+          </form>
+          <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-warning btn-sm">Editar</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
-    function badgeColor(status) {
-      switch (status) {
-        case "Por hacer": return "bg-secondary";
-        case "Revisar": return "bg-warning text-dark";
-        case "Finalizar": return "bg-primary";
-        case "Liberada": return "bg-success";
-        case "No completada": return "bg-danger";
-        default: return "bg-light text-dark";
-      }
-    }
-
-    async function cargarTareas() {
-      try {
-        const response = await fetch(`${serverUrl}/tasks/all`);
-        if (!response.ok) throw new Error("Error al obtener las tareas");
-
-        const tareas = await response.json();
-        const tbody = document.querySelector("#tablaTareas tbody");
-        tbody.innerHTML = "";
-
-        tareas.forEach(t => {
-          const fila = document.createElement("tr");
-          fila.innerHTML = `
-            <td>${t.id}</td>
-            <td>${t.title}</td>
-            <td>${t.description || ""}</td>
-            <td><span class="badge ${badgeColor(t.status)}">${t.status}</span></td>
-            <td>${t.user_id}</td>
-          `;
-          tbody.appendChild(fila);
-        });
-      } catch (error) {
-        console.error("Error:", error);
-        alert("No se pudieron cargar las tareas");
-      }
-    }
-
-    document.getElementById("btnCargarTareas").addEventListener("click", cargarTareas);
-    window.addEventListener("DOMContentLoaded", cargarTareas);
-  </script>
-</body>
-</html>
+  <!-- Formulario para crear nueva tarea -->
+  {% if can_create %}
+  <h3>Crear Nueva Tarea</h3>
+  <form action="{{ url_for('tasks.create_task') }}" method="POST">
+    <div class="mb-3">
+      <label for="title">Título</label>
+      <input type="text" class="form-control" name="title" required>
+    </div>
+    <div class="mb-3">
+      <label for="description">Descripción</label>
+      <textarea class="form-control" name="description"></textarea>
+    </div>
+    <div class="mb-3">
+      <label for="user_id">Asignar a Usuario</label>
+      <select class="form-control" name="user_id" required>
+        {% for user in users %}
+        <option value="{{ user.id }}">{{ user.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-success">Crear Tarea</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

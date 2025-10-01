@@ -1,0 +1,19 @@
+package com.tasks.rules
+
+import com.tasks.model.Task;
+
+rule "Liberar tarea solo admin"
+when
+    $task : Task( status == "Revisar", userRole == "admin" )
+then
+    $task.setStatus( "Liberada" );
+    System.out.println( "✅ Tarea liberada por admin: " + $task.getTitle() );
+end
+
+rule "Finalizar tarea solo admin"
+when
+    $task : Task( status == "Liberada", userRole == "admin" )
+then
+    $task.setStatus( "Finalizada" );
+    System.out.println( "✅ Tarea finalizada por admin: " + $task.getTitle() );
+end
