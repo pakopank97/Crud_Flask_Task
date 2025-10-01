@@ -1,32 +1,93 @@
 {% extends "base.html" %}
-{% block content %}
-<div class="container mt-4">
-    <h2>Listado de todas las tareas</h2>
-    <table class="table table-striped table-bordered table-hover">
-        <thead class="table-dark">
-            <tr>
-                <th>ID</th>
-                <th>Título</th>
-                <th>Descripción</th>
-                <th>Estado</th>
-                <th>Usuario Asignado</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for task in tasks %}
-            <tr>
-                <td>{{ task.id }}</td>
-                <td>{{ task.title }}</td>
-                <td>{{ task.description or "-" }}</td>
-                <td>{{ task.status }}</td>
-                <td>{{ task.user.username if task.user else "No asignado" }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
 
-    <div class="mt-3">
-        <a href="{{ url_for('tasks.dashboard') }}" class="btn btn-primary">Volver al Dashboard</a>
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Listado de Tareas</h2>
+    {% if current_user.role == "admin" %}
+        <!-- Botón Crear Tarea -->
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#crearTareaModal">+ Nueva Tarea</button>
+    {% endif %}
+</div>
+
+<table class="table table-striped table-dark">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Título</th>
+            <th>Descripción</th>
+            <th>Estado</th>
+            <th>Asignado a</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in tasks %}
+        <tr>
+            <td>{{ task.id }}</td>
+            <td>{{ task.title }}</td>
+            <td>{{ task.description }}</td>
+            <td>
+                <!-- Formulario para cambiar estado -->
+                <form action="{{ url_for('tasks.update_status', task_id=task.id) }}" method="POST" class="d-flex">
+                    <select name="status" class="form-select form-select-sm me-2">
+                        {% for st in allowed_statuses %}
+                            <option value="{{ st }}" {% if task.status == st %}selected{% endif %}>
+                                {{ st }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary">Actualizar</button>
+                </form>
+            </td>
+            <td>{{ task.user_id }}</td>
+            <td>
+                {% if current_user.role == "admin" %}
+                    <!-- Botón editar -->
+                    <a href="{{ url_for('tasks.edit_task', task_id=task.id) }}" class="btn btn-warning btn-sm">Editar</a>
+                    <!-- Botón eliminar -->
+                    <form action="{{ url_for('tasks.delete_task', task_id=task.id) }}" method="POST" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+                    </form>
+                {% else %}
+                    <span class="text-muted">Sin permisos</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Modal Crear Tarea -->
+<div class="modal fade" id="crearTareaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form action="{{ url_for('tasks.create_task') }}" method="POST" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Crear Nueva Tarea</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="title" class="form-label">Título</label>
+                    <input type="text" name="title" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label for="description" class="form-label">Descripción</label>
+                    <textarea name="description" class="form-control"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label for="user_id" class="form-label">Asignar a usuario</label>
+                    <select name="user_id" class="form-select" required>
+                        {% for u in users %}
+                            <option value="{{ u.id }}">{{ u.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-success">Crear</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}
