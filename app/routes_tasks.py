@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from .models import db, Task, User, VALID_STATUSES
 
+import os
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -22,17 +23,20 @@ def allowed_for_role(role: str):
     return ADMIN_ALLOWED_STATUSES if role == "admin" else USER_ALLOWED_STATUSES
 
 # -----------------------------
-# Configuración fija del KIE Server / jBPM
+# Configuración KIE Server / jBPM
 # -----------------------------
-KIE_SERVER_URL = "http://localhost:8080/kie-server/services/rest/server"
-KIE_USER = "wbadmin"
-KIE_PASSWORD = "wbadmin"
+KIE_SERVER_URL = os.getenv("KIE_SERVER_URL", "http://localhost:8080/kie-server/services/rest/server")
+KIE_USER = os.getenv("KIE_USER", "wbadmin")   # 👈 usar credenciales válidas
+KIE_PASSWORD = os.getenv("KIE_PASSWORD", "wbadmin")
 
-CONTAINER_ID = "tasks-kjar_1.0.0-SNAPSHOT"
-PROCESS_ID = "tasks-kjar.task-process"
+CONTAINER_ID = os.getenv("KIE_CONTAINER_ID", "tasks-kjar_1.0.0-SNAPSHOT")
+PROCESS_ID = os.getenv("KIE_PROCESS_ID", "tasks-kjar.task-process")
 
+# -----------------------------
+# Funciones jBPM
+# -----------------------------
 def notify_jbpm(event: str, task: Task):
-    """Notifica al KIE Server pero no interrumpe el flujo en caso de error."""
+    """Inicia un proceso en jBPM al crear la tarea y guarda el process_instance_id."""
     url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/{PROCESS_ID}/instances"
     payload = {
         "event": event,
@@ -49,12 +53,42 @@ def notify_jbpm(event: str, task: Task):
             json=payload,
             timeout=6,
         )
-        if r.status_code >= 400:
-            print(f"[jBPM] {r.status_code} {r.text[:300]}")
+        if r.status_code == 201:
+            process_id = r.json() if r.headers.get("content-type") == "application/json" else r.text
+            print(f"[jBPM] Proceso creado, instanceId={process_id}")
+            try:
+                task.process_instance_id = int(process_id)
+                db.session.commit()
+            except Exception:
+                print("[jBPM] Advertencia: no se pudo guardar process_instance_id en la BD")
+        elif r.status_code >= 400:
+            print(f"[jBPM] Error {r.status_code}: {r.text[:300]}")
         else:
             print(f"[jBPM] OK evento={event} tarea={task.id}")
     except Exception as e:
         print(f"[jBPM] Error notificando ({event}): {e}")
+
+
+def complete_jbpm_process(task: Task):
+    """Finaliza la instancia en jBPM si existe process_instance_id."""
+    if not getattr(task, "process_instance_id", None):
+        print("[jBPM] No hay process_instance_id en la tarea")
+        return
+
+    url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/instances/{task.process_instance_id}"
+    try:
+        r = requests.delete(
+            url,
+            auth=HTTPBasicAuth(KIE_USER, KIE_PASSWORD),
+            timeout=6,
+        )
+        if r.status_code in (200, 204):
+            print(f"[jBPM] Instancia {task.process_instance_id} finalizada.")
+        else:
+            print(f"[jBPM] Error al finalizar: {r.status_code} {r.text}")
+    except Exception as e:
+        print(f"[jBPM] Error finalizando proceso: {e}")
+
 
 # -----------------------------
 # Dashboard
@@ -114,6 +148,7 @@ def all_tasks_json():
             "description": t.description,
             "status": t.status,
             "user_id": t.user_id,
+            "process_instance_id": getattr(t, "process_instance_id", None),
         }
         for t in tasks
     ]
@@ -188,10 +223,14 @@ def update_status(task_id):
         flash("Estado no permitido para tu rol.", "danger")
         return redirect(url_for("tasks.dashboard"))
 
-    task.status = new_status
+    task.set_status(new_status)
     db.session.commit()
 
     notify_jbpm("status_changed", task)
+
+    # Si está liberada → cerramos proceso
+    if new_status == "Liberada":
+        complete_jbpm_process(task)
 
     flash("Estado de tarea actualizado.", "success")
     return redirect(url_for("tasks.dashboard"))
