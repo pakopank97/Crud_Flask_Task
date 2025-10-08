@@ -1,31 +1,47 @@
 {% extends "base.html" %}
+
+{% block title %}Editar Tarea{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h2>Editar Tarea</h2>
-    <form action="{{ url_for('tasks.edit_task', task_id=task.id) }}" method="post">
-        <div class="mb-3">
-            <label for="title" class="form-label">Título</label>
-            <input type="text" class="form-control" id="title" name="title" value="{{ task.title }}" required>
+<div class="container mt-5">
+    <div class="card shadow-lg border-0">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-pencil-square"></i> Editar Tarea</h5>
+            <a href="{{ url_for('tasks.dashboard') }}" class="btn btn-light btn-sm">
+                <i class="bi bi-arrow-left-circle"></i> Volver
+            </a>
         </div>
 
-        <div class="mb-3">
-            <label for="description" class="form-label">Descripción</label>
-            <textarea class="form-control" id="description" name="description" rows="3">{{ task.description }}</textarea>
-        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('tasks.edit_task', task_id=task.id) }}">
+                <div class="mb-3">
+                    <label for="title" class="form-label">Título</label>
+                    <input type="text" id="title" name="title" class="form-control" value="{{ task.title }}" required>
+                </div>
 
-        <div class="mb-3">
-            <label for="user_id" class="form-label">Asignar a Usuario</label>
-            <select class="form-select" id="user_id" name="user_id" required>
-                {% for user in users %}
-                <option value="{{ user.id }}" {% if task.user_id == user.id %}selected{% endif %}>
-                    {{ user.username }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
+                <div class="mb-3">
+                    <label for="description" class="form-label">Descripción</label>
+                    <textarea id="description" name="description" class="form-control" rows="4">{{ task.description }}</textarea>
+                </div>
 
-        <button type="submit" class="btn btn-primary">Guardar cambios</button>
-        <a href="{{ url_for('tasks.dashboard') }}" class="btn btn-secondary">Cancelar</a>
-    </form>
+                <div class="mb-3">
+                    <label for="user_id" class="form-label">Asignar a usuario</label>
+                    <select id="user_id" name="user_id" class="form-select">
+                        {% for user in users %}
+                            <option value="{{ user.id }}" {% if user.id == task.user_id %}selected{% endif %}>
+                                {{ user.username }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="d-flex justify-content-end">
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-circle"></i> Guardar cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 {% endblock %}

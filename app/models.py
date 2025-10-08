@@ -14,12 +14,13 @@ class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
-
-    # Dejamos VARCHAR(20) pero validamos contra VALID_STATUSES en el backend
     status = db.Column(db.String(20), default="Por hacer", nullable=False)
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     user = db.relationship("User", backref="tasks")
+
+    # 👇 Agrega este campo
+    process_instance_id = db.Column(db.Integer, nullable=True)
 
     def set_status(self, new_status):
         """Valida que el estado sea permitido antes de asignarlo"""

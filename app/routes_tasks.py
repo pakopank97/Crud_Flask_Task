@@ -26,7 +26,7 @@ def allowed_for_role(role: str):
 # Configuración KIE Server / jBPM
 # -----------------------------
 KIE_SERVER_URL = os.getenv("KIE_SERVER_URL", "http://localhost:8080/kie-server/services/rest/server")
-KIE_USER = os.getenv("KIE_USER", "wbadmin")   # 👈 usar credenciales válidas
+KIE_USER = os.getenv("KIE_USER", "wbadmin")
 KIE_PASSWORD = os.getenv("KIE_PASSWORD", "wbadmin")
 
 CONTAINER_ID = os.getenv("KIE_CONTAINER_ID", "tasks-kjar_1.0.0-SNAPSHOT")
@@ -35,63 +35,85 @@ PROCESS_ID = os.getenv("KIE_PROCESS_ID", "tasks-kjar.task-process")
 # -----------------------------
 # Funciones jBPM
 # -----------------------------
-def notify_jbpm(event: str, task: Task):
-    """Inicia un proceso en jBPM al crear la tarea y guarda el process_instance_id."""
+def start_jbpm_process(task: Task):
+    """Inicia proceso solo una vez por tarea."""
     url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/{PROCESS_ID}/instances"
     payload = {
-        "event": event,
-        "taskId": task.id,
-        "title": task.title,
-        "status": task.status,
-        "userId": task.user_id,
-        "byUser": getattr(current_user, "username", "system"),
+        "variables": {
+            "taskId": {"value": task.id},
+            "title": {"value": task.title},
+            "description": {"value": task.description or ""},
+            "status": {"value": task.status},
+            "userId": {"value": task.user_id},
+            "byUser": {"value": getattr(current_user, 'username', 'system')}
+        }
     }
     try:
         r = requests.post(
             url,
             auth=HTTPBasicAuth(KIE_USER, KIE_PASSWORD),
             json=payload,
-            timeout=6,
+            headers={"Content-Type": "application/json"},
+            timeout=10
         )
         if r.status_code == 201:
-            process_id = r.json() if r.headers.get("content-type") == "application/json" else r.text
-            print(f"[jBPM] Proceso creado, instanceId={process_id}")
-            try:
-                task.process_instance_id = int(process_id)
-                db.session.commit()
-            except Exception:
-                print("[jBPM] Advertencia: no se pudo guardar process_instance_id en la BD")
-        elif r.status_code >= 400:
-            print(f"[jBPM] Error {r.status_code}: {r.text[:300]}")
+            instance_id = int(r.text.strip())
+            task.process_instance_id = instance_id
+            db.session.commit()
+            print(f"[jBPM] ✅ Proceso creado (ID={instance_id}) para tarea {task.id}")
         else:
-            print(f"[jBPM] OK evento={event} tarea={task.id}")
+            print(f"[jBPM] ❌ Error creando proceso ({r.status_code}): {r.text}")
     except Exception as e:
-        print(f"[jBPM] Error notificando ({event}): {e}")
+        print(f"[jBPM] ❌ Error al conectar con jBPM: {e}")
+
+
+def signal_jbpm_process(task: Task, signal_name="status_changed"):
+    """Envía una señal JSON válida (evita error 415)."""
+    if not task.process_instance_id:
+        print(f"[jBPM] ⚠️ No hay process_instance_id en tarea {task.id}")
+        return
+
+    url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/instances/{task.process_instance_id}/signal/{signal_name}"
+    try:
+        r = requests.post(
+            url,
+            auth=HTTPBasicAuth(KIE_USER, KIE_PASSWORD),
+            json={},  # cuerpo JSON vacío
+            headers={"Content-Type": "application/json"},
+            timeout=6
+        )
+        if r.status_code in (200, 204):
+            print(f"[jBPM] 🔁 Señal '{signal_name}' enviada a proceso {task.process_instance_id}")
+        else:
+            print(f"[jBPM] ⚠️ Error al enviar señal ({r.status_code}): {r.text}")
+    except Exception as e:
+        print(f"[jBPM] ❌ Error conectando con jBPM: {e}")
 
 
 def complete_jbpm_process(task: Task):
-    """Finaliza la instancia en jBPM si existe process_instance_id."""
-    if not getattr(task, "process_instance_id", None):
-        print("[jBPM] No hay process_instance_id en la tarea")
+    """Finaliza proceso correctamente (no aborta)."""
+    if not task.process_instance_id:
+        print(f"[jBPM] ⚠️ No hay process_instance_id en tarea {task.id}")
         return
 
-    url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/instances/{task.process_instance_id}"
+    url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/instances/{task.process_instance_id}/signal/complete"
     try:
-        r = requests.delete(
+        r = requests.post(
             url,
             auth=HTTPBasicAuth(KIE_USER, KIE_PASSWORD),
-            timeout=6,
+            json={},  # cuerpo vacío válido
+            headers={"Content-Type": "application/json"},
+            timeout=6
         )
         if r.status_code in (200, 204):
-            print(f"[jBPM] Instancia {task.process_instance_id} finalizada.")
+            print(f"[jBPM] 🏁 Proceso {task.process_instance_id} finalizado correctamente.")
         else:
-            print(f"[jBPM] Error al finalizar: {r.status_code} {r.text}")
+            print(f"[jBPM] ⚠️ Error al finalizar proceso ({r.status_code}): {r.text}")
     except Exception as e:
-        print(f"[jBPM] Error finalizando proceso: {e}")
-
+        print(f"[jBPM] ❌ Error finalizando proceso: {e}")
 
 # -----------------------------
-# Dashboard
+# Dashboard y rutas
 # -----------------------------
 @tasks_bp.route("/")
 @login_required
@@ -107,52 +129,7 @@ def dashboard():
         can_create = False
         allowed_statuses = USER_ALLOWED_STATUSES
 
-    return render_template(
-        "dashboard.html",
-        tasks=tasks,
-        users=users,
-        can_create=can_create,
-        allowed_statuses=allowed_statuses,
-    )
-
-# -----------------------------
-# Página HTML “Ver todas”
-# -----------------------------
-@tasks_bp.route("/list", endpoint="all_tasks_page")
-@login_required
-def all_tasks_page():
-    if current_user.role == "admin":
-        tasks = Task.query.order_by(Task.id.desc()).all()
-        allowed_statuses = ADMIN_ALLOWED_STATUSES
-    else:
-        tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.id.desc()).all()
-        allowed_statuses = USER_ALLOWED_STATUSES
-
-    return render_template("all_tasks.html", tasks=tasks, allowed_statuses=allowed_statuses)
-
-# -----------------------------
-# API JSON para dashboard
-# -----------------------------
-@tasks_bp.route("/all", methods=["GET"], endpoint="all_tasks_json")
-@login_required
-def all_tasks_json():
-    if current_user.role == "admin":
-        tasks = Task.query.order_by(Task.id.desc()).all()
-    else:
-        tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.id.desc()).all()
-
-    data = [
-        {
-            "id": t.id,
-            "title": t.title,
-            "description": t.description,
-            "status": t.status,
-            "user_id": t.user_id,
-            "process_instance_id": getattr(t, "process_instance_id", None),
-        }
-        for t in tasks
-    ]
-    return jsonify(data)
+    return render_template("dashboard.html", tasks=tasks, users=users, can_create=can_create, allowed_statuses=allowed_statuses)
 
 # -----------------------------
 # Crear tarea (solo admin)
@@ -176,8 +153,7 @@ def create_task():
     db.session.add(task)
     db.session.commit()
 
-    notify_jbpm("created", task)
-
+    start_jbpm_process(task)
     flash("Tarea creada correctamente.", "success")
     return redirect(url_for("tasks.dashboard"))
 
@@ -187,6 +163,7 @@ def create_task():
 @tasks_bp.route("/<int:task_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_task(task_id):
+    """Permite al admin editar título, descripción o usuario asignado."""
     task = Task.query.get_or_404(task_id)
 
     if current_user.role != "admin":
@@ -209,6 +186,38 @@ def edit_task(task_id):
     users = User.query.order_by(User.username.asc()).all()
     return render_template("edit_task.html", task=task, users=users)
 
+    # -----------------------------
+# Eliminar tarea (solo admin)
+# -----------------------------
+@tasks_bp.route("/<int:task_id>/delete", methods=["POST"])
+@login_required
+def delete_task(task_id):
+    """Elimina una tarea (solo para administradores)."""
+    task = Task.query.get_or_404(task_id)
+
+    if current_user.role != "admin":
+        flash("Solo los administradores pueden eliminar tareas.", "danger")
+        return redirect(url_for("tasks.dashboard"))
+
+    # Si tiene proceso jBPM asociado, lo abortamos limpiamente
+    if getattr(task, "process_instance_id", None):
+        try:
+            url = f"{KIE_SERVER_URL}/containers/{CONTAINER_ID}/processes/instances/{task.process_instance_id}"
+            r = requests.delete(url, auth=HTTPBasicAuth(KIE_USER, KIE_PASSWORD), timeout=6)
+            if r.status_code in (200, 204):
+                print(f"[jBPM] 🧹 Proceso {task.process_instance_id} abortado antes de eliminar tarea.")
+            else:
+                print(f"[jBPM] ⚠️ No se pudo abortar el proceso ({r.status_code}): {r.text}")
+        except Exception as e:
+            print(f"[jBPM] ❌ Error al abortar proceso: {e}")
+
+    # Eliminar la tarea de la BD
+    db.session.delete(task)
+    db.session.commit()
+    flash("Tarea eliminada correctamente.", "success")
+    return redirect(url_for("tasks.dashboard"))
+
+
 # -----------------------------
 # Cambiar estado
 # -----------------------------
@@ -226,9 +235,10 @@ def update_status(task_id):
     task.set_status(new_status)
     db.session.commit()
 
-    notify_jbpm("status_changed", task)
+    # Envía señal al proceso si existe
+    signal_jbpm_process(task, "status_changed")
 
-    # Si está liberada → cerramos proceso
+    # Si está liberada → finaliza proceso
     if new_status == "Liberada":
         complete_jbpm_process(task)
 
@@ -236,18 +246,43 @@ def update_status(task_id):
     return redirect(url_for("tasks.dashboard"))
 
 # -----------------------------
-# Eliminar tarea (solo admin)
+# Página HTML “Ver todas”
 # -----------------------------
-@tasks_bp.route("/<int:task_id>/delete", methods=["POST"])
+@tasks_bp.route("/list", endpoint="all_tasks_page")
 @login_required
-def delete_task(task_id):
-    task = Task.query.get_or_404(task_id)
+def all_tasks_page():
+    """Muestra todas las tareas (vista HTML)."""
+    if current_user.role == "admin":
+        tasks = Task.query.order_by(Task.id.desc()).all()
+        allowed_statuses = ADMIN_ALLOWED_STATUSES
+    else:
+        tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.id.desc()).all()
+        allowed_statuses = USER_ALLOWED_STATUSES
 
-    if current_user.role != "admin":
-        flash("Solo los administradores pueden eliminar tareas.", "danger")
-        return redirect(url_for("tasks.dashboard"))
+    return render_template("all_tasks.html", tasks=tasks, allowed_statuses=allowed_statuses)
 
-    db.session.delete(task)
-    db.session.commit()
-    flash("Tarea eliminada correctamente.", "success")
-    return redirect(url_for("tasks.dashboard"))
+
+# -----------------------------
+# API JSON para dashboard
+# -----------------------------
+@tasks_bp.route("/all", methods=["GET"], endpoint="all_tasks_json")
+@login_required
+def all_tasks_json():
+    """Devuelve todas las tareas en formato JSON (para frontend o API)."""
+    if current_user.role == "admin":
+        tasks = Task.query.order_by(Task.id.desc()).all()
+    else:
+        tasks = Task.query.filter_by(user_id=current_user.id).order_by(Task.id.desc()).all()
+
+    data = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "description": t.description,
+            "status": t.status,
+            "user_id": t.user_id,
+            "process_instance_id": getattr(t, "process_instance_id", None),
+        }
+        for t in tasks
+    ]
+    return jsonify(data)
